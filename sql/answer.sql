@@ -17,13 +17,13 @@ CREATE TABLE queries_embedded (
 ) WITH (connector = 'file', format = 'json', path = 'out/queries_embedded.ndjson');
 
 CREATE TABLE retrievals (
-  query_id TEXT, chunk_id TEXT, system TEXT, score DOUBLE PRECISION
+  query_id TEXT, chunk_id TEXT, system TEXT, chunk_text TEXT, score DOUBLE PRECISION
 ) WITH (connector = 'file', format = 'json', path = 'out/retrievals.ndjson');
 
 -- filter_eq scopes each query's search to corpus rows whose `system` equals the
 -- query's `f_system` (null = no constraint), applied as a metadata pre-filter so
 -- the filter queries retrieve the right system instead of the nearest overall.
 INSERT INTO retrievals
-  SELECT query_id, chunk_id, system, score
+  SELECT query_id, chunk_id, system, chunk_text, score
   FROM VECTOR_SEARCH(TABLE queries_embedded, emb, corpus, DESCRIPTOR(vec), 3,
                      metric = 'cosine', filter_eq = 'f_system:system');
