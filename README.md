@@ -51,12 +51,13 @@ server, and runs two `clink run` stages against the installed CLI.
 
 `tools/embed_server.py` is the embedding model the pipeline calls over HTTP - the
 realistic RAG shape, and the seam where a real embedding API drops in for the live
-mode. `tools/check.py` then gates the retrievals against the manifest: every plain
-query must retrieve its gold chunk as top-1 and every firmly-ranked chunk (tied
-tail chunks, which the reference and clink's cosine kernel may order differently,
-may vary). The metadata-filter queries currently run unfiltered and reproduce the
-wrong-system result the manifest predicts; scoping retrieval by `system` and
-`severity` is the piece that follows.
+mode. `tools/check.py` then gates every query against the manifest: it must
+retrieve its gold chunk as top-1 and every firmly-ranked chunk (score-tied tail
+chunks, which the reference and clink's cosine kernel may order differently, may
+vary). The metadata-scoped queries pass their `system` scope to `VECTOR_SEARCH` as
+a pre-filter, so they retrieve the right system rather than the nearest overall.
+The oracle also assembles a grounded answer per query and gates that no answer
+cites a chunk outside its retrieval - a hallucinated citation is caught.
 
 ```bash
 scripts/get-clink.sh     # once: install clink into .clink/prefix
@@ -66,7 +67,23 @@ scripts/run.sh           # generate -> embed -> index -> retrieve -> gate
 A good run ends on the oracle's verdict:
 
 ```
-plain queries:  15/15 retrieve their gold chunk as top-1 and every firmly-ranked chunk
-filter queries: 6/6 reproduce the manifest's unfiltered result
+queries: 21/21 retrieve their gold chunk as top-1 and every firmly-ranked chunk
+metadata filter: 6 queries scoped by system, 3 of which would retrieve the wrong system unscoped
+grounding: 21/21 answers cite only retrieved chunks; the gate catches a hallucinated citation
 OK: ...
 ```
+
+## More scenes
+
+Beyond the one-command gate, two scripts show what a real deployment needs:
+
+- `scripts/scene-live-corpus.sh` - the index is not frozen at deploy. It probes
+  the corpus for a runbook that does not exist yet, appends a hotfix runbook, and
+  probes again: the query now retrieves the hotfix. On a running job
+  `corpus_refresh_ms` rebuilds the index inline, without a restart.
+- `scripts/scene-replay.sh` - every retrieval is reproducible. It runs the
+  pipeline with the flight recorder armed, then offline replays the `VECTOR_SEARCH`
+  operator's captured epoch, verifies it re-executes byte-identically, and freezes
+  it into a self-contained regression bundle. For "which runbook chunks grounded
+  this answer, and can you prove it?", the captured epoch and the corpus reproduce
+  the exact retrieval.
