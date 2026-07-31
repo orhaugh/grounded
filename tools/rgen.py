@@ -284,6 +284,20 @@ QUERIES = [
 ]
 
 
+# --- Live-corpus scene fixtures: a hotfix runbook NOT in the base corpus, and a
+# probe query that only retrieves it once the runbook is added. ---
+HOTFIX = {
+    "doc_id": "net-api-abuse", "system": "network", "severity": "high",
+    "title": "Public API abuse and rate limiting",
+    "body": [
+        "A single API token is hammering the public endpoint far above its quota, and legitimate callers are throttled behind it. Identify the abusive token from the per-token request-rate metrics.",
+        "Apply a token-bucket rate limit keyed on the API token so the abuser is capped at its quota while everyone else is unaffected, and return an HTTP 429 with a Retry-After header once the token's bucket is empty.",
+    ],
+}
+PROBE = {"query_id": "probe-api-abuse",
+         "text": "cap an abusive api token with a token bucket rate limit and return 429"}
+
+
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data = os.path.join(root, "data")
@@ -362,6 +376,31 @@ def main():
     with open(os.path.join(data, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2, sort_keys=True)
         fh.write("\n")
+
+    # Live-corpus fixtures, self-checked so the scene's before/after holds: with the
+    # hotfix runbook in the corpus the probe's top chunk is a hotfix chunk; without
+    # it, it is not (the base corpus has no equally-good match).
+    hotfix_chunks = build_chunks([HOTFIX])
+    all_vecs = dict(chunk_vecs)
+    for c in hotfix_chunks:
+        all_vecs[c["chunk_id"]] = embed(c["text"])
+    hotfix_ids = {c["chunk_id"] for c in hotfix_chunks}
+    top_with = retrieve(PROBE["text"], chunks + hotfix_chunks, all_vecs, None)[0]
+    top_without = retrieve(PROBE["text"], chunks, chunk_vecs, None)[0]
+    if top_with not in hotfix_ids:
+        print(f"SELF-CHECK FAILED (live corpus): probe does not retrieve the hotfix "
+              f"once added; got {top_with}")
+        raise SystemExit(1)
+    if top_without in hotfix_ids:
+        print("SELF-CHECK FAILED (live corpus): probe retrieved a hotfix chunk from the "
+              "base corpus (impossible)")
+        raise SystemExit(1)
+    with open(os.path.join(data, "hotfix.ndjson"), "w") as fh:
+        for c in hotfix_chunks:
+            fh.write(json.dumps(c) + "\n")
+    with open(os.path.join(data, "probe.ndjson"), "w") as fh:
+        fh.write(json.dumps({"query_id": PROBE["query_id"], "text": PROBE["text"],
+                             "f_system": None}) + "\n")
 
     n_filter = sum(1 for q in QUERIES if q.get("filter"))
     print(f"tape written to {data}/")
