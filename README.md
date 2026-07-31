@@ -24,9 +24,10 @@ writes a labelled query set and a `manifest.json` of ground-truth retrievals.
 
 The embedder is a fully specified hashed bag-of-words cosine (FNV-1a, 512
 dimensions, a fixed stopword list), so retrieval is reproducible with zero
-dependencies and the same embedding runs identically in Python (the oracle) and
-in the clink pipeline (a C++ closure provider). The optional live mode swaps in a
-real semantic embedding model via `ML_PREDICT`; that path is not oracle-gated.
+dependencies and the same embedding runs identically in the oracle and in the
+embed server the pipeline calls (`tools/embed_server.py`). The optional live mode
+points the same `ML_PREDICT` endpoint at a real embedding API; that path is not
+oracle-gated.
 
 The generator self-checks every invariant the oracle relies on before it writes:
 
@@ -37,13 +38,35 @@ The generator self-checks every invariant the oracle relies on before it writes:
   returns the payment-gateway failover step. This is what the metadata-filtered
   retrieval earns.
 
-## Running
+## The pipeline
+
+`scripts/run.sh` is the one command: it generates the tape, starts the embedding
+server, and runs two `clink run` stages against the installed CLI.
+
+- `sql/index.sql` embeds every chunk and every query through `ML_PREDICT`
+  (`CREATE MODEL embedder ... WITH ('provider' = 'http', ...)`), writing the
+  vector corpus and the embedded queries.
+- `sql/answer.sql` retrieves each query's nearest chunks with `VECTOR_SEARCH` over
+  that corpus and writes the results.
+
+`tools/embed_server.py` is the embedding model the pipeline calls over HTTP - the
+realistic RAG shape, and the seam where a real embedding API drops in for the live
+mode. `tools/check.py` then gates the retrievals against the manifest: every plain
+query must retrieve its gold chunk as top-1 and every firmly-ranked chunk (tied
+tail chunks, which the reference and clink's cosine kernel may order differently,
+may vary). The metadata-filter queries currently run unfiltered and reproduce the
+wrong-system result the manifest predicts; scoping retrieval by `system` and
+`severity` is the piece that follows.
 
 ```bash
-python3 tools/rgen.py    # writes the corpus, queries and manifest to data/
+scripts/get-clink.sh     # once: install clink into .clink/prefix
+scripts/run.sh           # generate -> embed -> index -> retrieve -> gate
 ```
 
-## Status
+A good run ends on the oracle's verdict:
 
-The tape and its retrieval oracle are in place and deterministic. The streaming
-pipeline that consumes them is being built against a local clink checkout.
+```
+plain queries:  15/15 retrieve their gold chunk as top-1 and every firmly-ranked chunk
+filter queries: 6/6 reproduce the manifest's unfiltered result
+OK: ...
+```

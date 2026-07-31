@@ -19,70 +19,25 @@ run. Writes under ``data/``:
                    different, wrong chunk. That difference is what proves the
                    metadata pre-filter earns its keep.
 
-THE EMBEDDER (spec - the C++ closure provider in the app must match this
-byte-for-byte, or the pipeline's retrieval will not reproduce the manifest):
+The embedder is defined once in embedder.py and shared with the embed server
+(tools/embed_server.py), so the manifest's ground-truth retrievals and the
+vectors the pipeline actually indexes are computed by the same code. It is a
+deterministic hashed bag-of-words cosine (FNV-1a, 512 dims, a fixed stopword
+list); the optional live mode swaps in a real semantic embedding model behind the
+same HTTP contract and is not oracle-gated.
 
-  1. Lowercase ASCII. A token is a maximal run of [a-z0-9] of length >= 2.
-  2. Drop the fixed STOPWORDS set below.
-  3. For each surviving token compute FNV-1a (64-bit). bucket = h mod D;
-     sign = +1 if bit 63 of h is set else -1; accumulate sign into v[bucket].
-  4. L2-normalise v. Similarity is the dot product of two normalised vectors
-     (cosine). D = 512.
-
-This is a hashed bag-of-words ("hashing trick") embedding: deterministic,
-dependency-free, and it captures lexical overlap, which is all the CI-green
-oracle needs. The optional live mode swaps in a real semantic embedding model
-via ML_PREDICT; that path is not oracle-gated.
+manifest.json also records each query's expected_topk_scores, so the oracle can
+require the firmly-ranked chunks (score clearly above the k-th) while tolerating
+score-tied tail chunks, which the float64 reference and clink's float32 SimSIMD
+cosine kernel may order differently.
 """
 
 import json
-import math
 import os
-import re
 
-D = 512
+from embedder import D, STOPWORDS, cosine, embed
+
 TOP_K = 3
-
-# Fixed, ported verbatim to C++. Ultra-common English words that would
-# otherwise add a shared baseline to every vector and blur retrieval.
-STOPWORDS = {
-    "the", "a", "an", "to", "of", "and", "or", "is", "are", "be", "in", "on",
-    "for", "with", "as", "at", "by", "it", "its", "this", "that", "these",
-    "those", "we", "you", "do", "does", "how", "what", "when", "which", "if",
-    "then", "from", "into", "out", "up", "our", "your", "not", "no", "can",
-    "will", "has", "have", "was", "were", "run", "use", "using",
-}
-
-_TOKEN = re.compile(r"[a-z0-9]+")
-
-
-def fnv1a64(s: str) -> int:
-    h = 0xCBF29CE484222325
-    for b in s.encode("ascii"):
-        h ^= b
-        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-    return h
-
-
-def tokenize(text: str):
-    return [t for t in _TOKEN.findall(text.lower())
-            if len(t) >= 2 and t not in STOPWORDS]
-
-
-def embed(text: str):
-    v = [0.0] * D
-    for tok in tokenize(text):
-        h = fnv1a64(tok)
-        sign = 1.0 if (h >> 63) & 1 else -1.0
-        v[h % D] += sign
-    norm = math.sqrt(sum(x * x for x in v))
-    if norm > 0.0:
-        v = [x / norm for x in v]
-    return v
-
-
-def cosine(a, b):
-    return sum(x * y for x, y in zip(a, b))
 
 
 SEVERITY = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -351,7 +306,9 @@ def main():
         topk = retrieve(q["text"], chunks, chunk_vecs, q.get("filter") or None)
         if not topk or topk[0] != gold:
             failures.append(f"{q['query_id']}: gold {gold} is not top-1 under filter; got {topk}")
-        entry = {"filter": q.get("filter") or {}, "gold": gold, "expected_topk": topk}
+        qv = embed(q["text"])
+        entry = {"filter": q.get("filter") or {}, "gold": gold, "expected_topk": topk,
+                 "expected_topk_scores": [round(cosine(qv, chunk_vecs[c]), 9) for c in topk]}
 
         # For a real filter query, the SAME query without the filter must
         # surface a DIFFERENT, wrong-system chunk - otherwise the filter is
