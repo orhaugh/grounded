@@ -1,0 +1,57 @@
+# grounded CI: install clink the way the README tells a human to, then run the
+# RAG gate that runs without Docker - generate the tape, embed and index it, and
+# gate the retrievals and grounded answers against the oracle.
+#
+# clink is pinned to a tagged release (CLINK_VERSION). On the Linux x86_64 runner
+# get-clink.sh takes the prebuilt-SDK fast path (download + checksum + extract, no
+# compiler for clink itself) and falls back to a source build of the tag otherwise;
+# the metadata-filtered VECTOR_SEARCH and impl-operator replay this pipeline uses
+# shipped in clink v0.6.0.
+#
+# The live-corpus and replay scenes (scripts/scene-*.sh) are demonstrations run
+# locally, not here.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CLINK_VERSION: v0.6.0
+  # No object-store Arrow (nothing here uses s3://): lets the pinned toolchain
+  # build on a bare runner (source-build fallback) without the aws-sdk.
+  CLINK_ARROW_OBJECT_STORES: "OFF"
+  CLINK_SKIP_ICEBERG: "1"
+  CC: gcc-14
+  CXX: g++-14
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache the pinned Arrow/Parquet toolchain for the source-build fallback;
+      # the prebuilt-SDK fast path (Linux x86_64) skips it entirely.
+      - name: Restore the pinned clink toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.clink-deps
+          key: clink-deps-${{ runner.os }}-${{ runner.arch }}-obj${{ env.CLINK_ARROW_OBJECT_STORES }}-gcc14-v1
+
+      - name: Tooling and clink's system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential g++-14 git curl ca-certificates pkg-config \
+            libssl-dev libcurl4-openssl-dev libsqlite3-dev libxml2-dev \
+            libzstd-dev zlib1g-dev
+
+      - name: Install clink (pinned release)
+        run: scripts/get-clink.sh
+
+      - name: Run the RAG gate (generate -> embed -> retrieve -> ground -> oracle)
+        run: bash scripts/run.sh
