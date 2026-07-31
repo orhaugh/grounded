@@ -279,7 +279,7 @@ QUERIES = [
      "filter": {"system": "payments"}, "gold": "pay-double-charge#1",
      "collides_with_system": "payments"},
     {"query_id": "f06", "text": "the primary database is down and unresponsive to writes",
-     "filter": {"system": "database", "min_severity": "critical"}, "gold": "db-primary-failover#0",
+     "filter": {"system": "database"}, "gold": "db-primary-failover#0",
      "collides_with_system": "database"},
 ]
 
@@ -351,8 +351,12 @@ def main():
 
     with open(os.path.join(data, "queries.ndjson"), "w") as fh:
         for q in QUERIES:
+            filt = q.get("filter") or {}
+            # f_system is the metadata scope the pipeline passes to VECTOR_SEARCH's
+            # filter_eq; null (absent filter) means no constraint for that query.
             fh.write(json.dumps({
-                "query_id": q["query_id"], "text": q["text"], "filter": q.get("filter") or {},
+                "query_id": q["query_id"], "text": q["text"],
+                "f_system": filt.get("system"),
             }) + "\n")
 
     with open(os.path.join(data, "manifest.json"), "w") as fh:

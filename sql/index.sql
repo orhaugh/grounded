@@ -26,13 +26,13 @@ INSERT INTO corpus
   FROM ML_PREDICT(TABLE chunks, MODEL embedder, DESCRIPTOR(text));
 
 CREATE TABLE queries (
-  query_id TEXT, text TEXT
+  query_id TEXT, text TEXT, f_system TEXT
 ) WITH (connector = 'file', format = 'json', path = 'data/queries.ndjson');
 
 CREATE TABLE queries_embedded (
-  query_id TEXT, qtext TEXT, emb DOUBLE PRECISION ARRAY
+  query_id TEXT, qtext TEXT, f_system TEXT, emb DOUBLE PRECISION ARRAY
 ) WITH (connector = 'file', format = 'json', path = 'out/queries_embedded.ndjson');
 
 INSERT INTO queries_embedded
-  SELECT query_id, text AS qtext, vec AS emb
+  SELECT query_id, text AS qtext, f_system, vec AS emb
   FROM ML_PREDICT(TABLE queries, MODEL embedder, DESCRIPTOR(text));

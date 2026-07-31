@@ -32,48 +32,48 @@ def main():
         return [cid for _, cid in sorted(by_q.get(qid, []), key=lambda s: (-s[0], s[1]))]
 
     fails = []
-    plain_total = sum(1 for e in manifest["queries"].values() if not e["filter"])
-    filt_total = sum(1 for e in manifest["queries"].values() if e["filter"])
-    plain_ok = filt_ok = exact_topk = 0
+    total = len(manifest["queries"])
+    ok = exact_topk = 0
+    filt_total = filt_genuine = 0
 
     for qid, e in sorted(manifest["queries"].items()):
         got = topk(qid)
-        if not e["filter"]:
-            exp = e["expected_topk"]
-            scores = e.get("expected_topk_scores") or []
-            # The unambiguously-ranked chunks are those scoring strictly above the
-            # k-th (tie-boundary) score. Chunks tied with the boundary can reorder
-            # between the float64 reference embedder and clink's float32 SimSIMD
-            # cosine kernel, so only the firm set must be retrieved; the tail ties
-            # may differ. The gold (top-1) always has a clear margin.
-            tau = min(scores) if scores else 0.0
-            firm = {c for c, s in zip(exp, scores) if s > tau + 1e-6}
-            if got and got[0] == e["gold"] and firm.issubset(set(got)):
-                plain_ok += 1
-                if set(got) == set(exp):
-                    exact_topk += 1
-            else:
-                fails.append(f"{qid} (plain): want top-1 {e['gold']} + firm {sorted(firm)}; got {got}")
+        exp = e["expected_topk"]
+        scores = e.get("expected_topk_scores") or []
+        # Firmly-ranked chunks score strictly above the k-th (tie-boundary) score.
+        # Chunks tied with the boundary can reorder between the float64 reference
+        # embedder and clink's float32 SimSIMD cosine kernel, so only the firm set
+        # must be retrieved; the tail ties may differ. The gold (top-1) always has a
+        # clear margin. For a filter query, expected_topk is the FILTERED ranking, so
+        # the same gate proves the metadata pre-filter selected the right system.
+        tau = min(scores) if scores else 0.0
+        firm = {c for c, s in zip(exp, scores) if s > tau + 1e-6}
+        if got and got[0] == e["gold"] and firm.issubset(set(got)):
+            ok += 1
+            if set(got) == set(exp):
+                exact_topk += 1
         else:
-            want = e.get("unfiltered_top1")
-            if got and got[0] == want:
-                filt_ok += 1
-            else:
-                fails.append(f"{qid} (filter, unfiltered): want unfiltered top-1 {want}; got {got}")
+            fails.append(f"{qid}: want top-1 {e['gold']} + firm {sorted(firm)}; got {got}")
+        if e["filter"]:
+            filt_total += 1
+            # "genuine": unscoped, the same query would surface a different chunk (the
+            # wrong system), so the filter is doing real work rather than decorating.
+            if e.get("unfiltered_top1") and e["unfiltered_top1"] != e["gold"]:
+                filt_genuine += 1
 
-    print(f"plain queries:  {plain_ok}/{plain_total} retrieve their gold chunk as top-1 "
-          f"and every firmly-ranked chunk")
-    print(f"                ({exact_topk}/{plain_total} also reproduce the full top-k set; the rest "
-          f"differ only in score-tied tail chunks)")
-    print(f"filter queries: {filt_ok}/{filt_total} reproduce the manifest's unfiltered result")
+    print(f"queries: {ok}/{total} retrieve their gold chunk as top-1 and every firmly-ranked chunk")
+    print(f"         ({exact_topk}/{total} reproduce the full top-k set; the rest differ only in "
+          f"score-tied tail chunks)")
+    print(f"metadata filter: {filt_total} queries scoped by system, {filt_genuine} of which would "
+          f"retrieve")
+    print(f"                 the WRONG system unscoped - the pre-filter corrects them")
     if fails:
         print("\nFAILURES:")
         for f in fails:
             print("  -", f)
         return 1
-    print("\nOK: every plain query retrieved its gold chunk as top-1; every filter query")
-    print("    reproduced the unfiltered result the manifest predicts (the wrong system for")
-    print("    the genuine ones), which the round-3 metadata filter will correct.")
+    print("\nOK: every query retrieves its gold chunk as top-1; the metadata-scoped queries")
+    print("    retrieve the right system, which they would not without the filter.")
     return 0
 
 
