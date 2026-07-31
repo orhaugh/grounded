@@ -32,10 +32,9 @@ The generator self-checks every invariant the oracle relies on before it writes:
 
 - Each query's intended chunk is the top-1 result under its filter.
 - Each metadata-filter query would retrieve the **wrong system's** runbook
-  without the filter. For example, "fail over to the backup during the outage"
-  scoped to `payments` returns the payment-gateway failover step and scoped to
-  `network` returns the DNS failover step, while unscoped it would cite the
-  backup-corruption runbook instead. This is what the metadata-filtered
+  without the filter. For example, "how do we fail over during an outage"
+  unscoped surfaces the DNS-resolver runbook, but scoped to `payments` it
+  returns the payment-gateway failover step. This is what the metadata-filtered
   retrieval earns.
 
 ## Running

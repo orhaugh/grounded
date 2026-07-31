@@ -298,21 +298,25 @@ QUERIES = [
     {"query_id": "q15", "text": "prove backups are usable by restoring a snapshot into an isolated environment",
      "filter": {}, "gold": "backup-restore-drill#0"},
 
-    # Filter queries. f01/f02 are the same generic question scoped to two
-    # different systems: unfiltered it lands in a third (backup), and only the
-    # system filter returns the right runbook for each. f03's generic "rotate"
-    # wording wins in network unfiltered; the filter pins it to auth. f04-f06
-    # are sanity filters (already in-system) that confirm scoping and the
-    # severity floor do not break the intended result.
-    {"query_id": "f01", "text": "fail over to the backup during the outage",
+    # Filter queries. f01-f03 genuinely need the filter: unfiltered each lands
+    # in a DIFFERENT system (annotated in collides_with_system), and only the
+    # metadata filter returns the right system's runbook. "how do we fail over
+    # during an outage" unscoped surfaces the DNS runbook, but scoped to
+    # payments it returns the gateway failover step; "fail over to the backup
+    # during the outage" unscoped surfaces the gateway runbook, scoped to
+    # network the DNS one; the generic "rotate" query wins in auth unscoped but
+    # scoped to network returns the certificate rotation. f04-f06 are sanity
+    # filters (already in-system) that confirm scoping and the severity floor do
+    # not break the intended result.
+    {"query_id": "f01", "text": "how do we fail over during an outage",
      "filter": {"system": "payments"}, "gold": "pay-gateway-timeout#1",
-     "collides_with_system": "backup"},
+     "collides_with_system": "network"},
     {"query_id": "f02", "text": "fail over to the backup during the outage",
      "filter": {"system": "network"}, "gold": "net-dns-outage#1",
-     "collides_with_system": "backup"},
+     "collides_with_system": "payments"},
     {"query_id": "f03", "text": "rotate the expired secret and reload the service",
-     "filter": {"system": "auth"}, "gold": "auth-leaked-credential#1",
-     "collides_with_system": "network"},
+     "filter": {"system": "network"}, "gold": "net-tls-cert-expiry#1",
+     "collides_with_system": "auth"},
     {"query_id": "f04", "text": "revoke the stolen token and terminate the session",
      "filter": {"system": "auth"}, "gold": "auth-oauth-token-abuse#1",
      "collides_with_system": "auth"},
@@ -331,7 +335,7 @@ def main():
     os.makedirs(data, exist_ok=True)
 
     chunks = build_chunks(DOCS)
-    chunk_vecs = {c["chunk_id"]: embed(c["text"] + " " + c["title"]) for c in chunks}
+    chunk_vecs = {c["chunk_id"]: embed(c["text"]) for c in chunks}
     by_id = {c["chunk_id"]: c for c in chunks}
 
     # --- Self-check: every design invariant the pipeline and oracle rely on. ---
