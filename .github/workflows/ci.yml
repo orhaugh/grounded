@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 env:
-  CLINK_VERSION: v0.6.0
+  CLINK_VERSION: v0.13.0
   # No object-store Arrow (nothing here uses s3://): lets the pinned toolchain
   # build on a bare runner (source-build fallback) without the aws-sdk.
   CLINK_ARROW_OBJECT_STORES: "OFF"
