@@ -2,8 +2,9 @@
 --
 -- Embed every runbook chunk and every query through the HTTP embedding model,
 -- writing the vector corpus and the embedded queries. The model is a plain
--- ML_PREDICT http provider pointed at the local embed server (deterministic in
--- CI, a real embedding API in the live mode). Run from the repository root.
+-- ML_PREDICT http provider pointed at the local embed server, which is
+-- deterministic; a real embedding model could serve the same contract. Run from
+-- the repository root.
 
 CREATE MODEL embedder
   INPUT (text TEXT)

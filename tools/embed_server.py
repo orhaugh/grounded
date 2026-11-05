@@ -15,8 +15,8 @@ from embedder.py, so the vectors it serves are byte-identical to the ones rgen u
 to build the manifest, and retrieval is reproducible with no model download and no
 network. This is the CI-green path.
 
-A live mode (a real semantic embedding API) plugs in behind the same contract; it
-is out of scope for the deterministic gate and added in a later round.
+A real semantic embedding model could serve the same contract in its place; the
+deterministic gate does not cover that.
 """
 
 import argparse

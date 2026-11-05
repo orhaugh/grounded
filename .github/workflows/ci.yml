@@ -1,6 +1,6 @@
 # grounded CI: install clink the way the README tells a human to, then run the
-# RAG gate that runs without Docker - generate the tape, embed and index it, and
-# gate the retrievals and grounded answers against the oracle.
+# RAG gate that runs without Docker - generate the tape, embed and index it, hold
+# the retrievals to the oracle, and check the answers' citations.
 #
 # clink is pinned to a tagged release (CLINK_VERSION). On the Linux x86_64 runner
 # get-clink.sh takes the prebuilt-SDK fast path (download + checksum + extract, no
@@ -81,5 +81,5 @@ jobs:
       - name: Install clink (the pin, or the clink under test)
         run: scripts/get-clink.sh
 
-      - name: Run the RAG gate (generate -> embed -> retrieve -> ground -> oracle)
+      - name: Run the RAG gate (generate -> embed -> retrieve -> oracle -> citations)
         run: bash scripts/run.sh

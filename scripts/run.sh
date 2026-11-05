@@ -18,6 +18,8 @@ if [[ ! -x "${CLINK}" ]]; then
 fi
 
 python3 tools/rgen.py
+echo "== the oracle's own tests: each way a retrieval can break is rejected"
+python3 -m unittest discover -s tools -p 'test_*.py'
 mkdir -p out
 rm -f out/corpus.ndjson out/queries_embedded.ndjson out/retrievals.ndjson
 

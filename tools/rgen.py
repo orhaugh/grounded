@@ -23,19 +23,25 @@ The embedder is defined once in embedder.py and shared with the embed server
 (tools/embed_server.py), so the manifest's ground-truth retrievals and the
 vectors the pipeline actually indexes are computed by the same code. It is a
 deterministic hashed bag-of-words cosine (FNV-1a, 512 dims, a fixed stopword
-list); the optional live mode swaps in a real semantic embedding model behind the
-same HTTP contract and is not oracle-gated.
+list). A real embedding model could serve the same HTTP contract instead; nothing
+here checks that path.
 
-manifest.json also records each query's expected_topk_scores, so the oracle can
-require the firmly-ranked chunks (score clearly above the k-th) while tolerating
-score-tied tail chunks, which the float64 reference and clink's float32 SimSIMD
-cosine kernel may order differently.
+For each query the manifest also records what the oracle holds the pipeline's
+results to, computed here from the tape alone: expected_count, the number of
+results (top_k, or fewer when the filter admits fewer chunks); boundary_score,
+the last of those results' reference score; firm, the chunks scoring more than
+2 * SCORE_TOL above the boundary, which every result set must contain; tied, the
+chunks within 2 * SCORE_TOL of the boundary, among which the remaining results
+may fall in either order; and reference_scores for the firm and tied chunks.
+SCORE_TOL (embedder.py) bounds how far clink's float32 cosine can sit from this
+float64 reference, so chunks further apart than twice that cannot change
+places, and chunks closer can.
 """
 
 import json
 import os
 
-from embedder import D, STOPWORDS, cosine, embed
+from embedder import D, SCORE_TOL, STOPWORDS, cosine, embed
 
 TOP_K = 3
 
@@ -310,7 +316,8 @@ def main():
     # --- Self-check: every design invariant the pipeline and oracle rely on. ---
     failures = []
     manifest = {"embedder": {"dim": D, "hash": "fnv1a64", "stopwords": sorted(STOPWORDS)},
-                "top_k": TOP_K, "queries": {}}
+                "top_k": TOP_K, "score_tolerance": SCORE_TOL, "queries": {}}
+    window = 2 * SCORE_TOL
 
     for q in QUERIES:
         gold = q["gold"]
@@ -323,6 +330,24 @@ def main():
         qv = embed(q["text"])
         entry = {"filter": q.get("filter") or {}, "gold": gold, "expected_topk": topk,
                  "expected_topk_scores": [round(cosine(qv, chunk_vecs[c]), 9) for c in topk]}
+
+        # The boundary, from every chunk the filter admits: which results are
+        # firm, and which may stand in for each other at the boundary.
+        eligible = sorted(((cosine(qv, chunk_vecs[c["chunk_id"]]), c["chunk_id"])
+                           for c in chunks if matches_filter(c, q.get("filter") or None)),
+                          key=lambda s: (-s[0], s[1]))
+        count = min(TOP_K, len(eligible))
+        boundary = eligible[count - 1][0]
+        firm = [cid for sc, cid in eligible if sc > boundary + window]
+        tied = [cid for sc, cid in eligible if abs(sc - boundary) <= window]
+        entry.update(expected_count=count, boundary_score=round(boundary, 9), firm=firm, tied=tied,
+                     reference_scores={cid: round(sc, 9) for sc, cid in eligible
+                                       if cid in firm or cid in tied})
+        # The oracle requires the gold chunk first, so no chunk may come within
+        # the window of it: closer, the two could change places in float32.
+        if len(eligible) > 1 and eligible[0][0] - eligible[1][0] <= window:
+            failures.append(f"{q['query_id']}: gold {gold} is within {window} of {eligible[1][1]}, "
+                            f"so it cannot be required first")
 
         # For a real filter query, the SAME query without the filter must
         # surface a DIFFERENT, wrong-system chunk - otherwise the filter is
@@ -407,9 +432,9 @@ def main():
     print(f"  docs:    {len(DOCS)}")
     print(f"  chunks:  {len(chunks)}")
     print(f"  queries: {len(QUERIES)} ({n_filter} with a metadata filter)")
-    print("  self-check: every query's gold chunk is top-1 under its filter,")
-    print("              and every real filter query would retrieve the wrong")
-    print("              system without it.")
+    print("  self-check: every query's gold chunk is top-1 under its filter, clear of")
+    print(f"              the next chunk by more than {2 * SCORE_TOL}, and every real filter")
+    print("              query would retrieve the wrong system without it.")
 
 
 if __name__ == "__main__":

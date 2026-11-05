@@ -5,14 +5,25 @@ the pipeline actually indexes are computed by the SAME code. See the spec in the
 rgen.py module docstring; the short version is a hashed bag-of-words cosine:
 lowercase ASCII tokens of length >= 2, minus a fixed stopword list, hashed with
 FNV-1a into a 512-dim signed accumulator, L2-normalised. It captures lexical
-overlap, which is all the deterministic oracle needs; the live mode swaps in a
-real semantic embedding model behind the same HTTP contract.
+overlap, which is all the deterministic oracle needs. A real semantic embedding
+model could serve the same HTTP contract instead; nothing here checks that.
 """
 
 import math
 import re
 
 D = 512
+
+# How far clink's score for a chunk may sit from the reference's. clink scores
+# cosine similarity in float32 (SimSIMD); the reference computes it in float64
+# from the same unit vectors. A float32 dot product of n terms is within
+# n * u of the exact value for unit vectors, u = 2**-24, so for n = 512 within
+# 3.05e-5; the kernel's own normalisation by float32 norms can add as much
+# again, and rounding the inputs to float32 adds 2u, 1.2e-7: 6.1e-5 in all.
+# SCORE_TOL rounds that bound up. Two chunks whose reference scores are more
+# than 2 * SCORE_TOL apart cannot change places in clink's ranking; two that
+# are closer can, which is what "tied" means in the manifest and the oracle.
+SCORE_TOL = 1e-4
 
 STOPWORDS = {
     "the", "a", "an", "to", "of", "and", "or", "is", "are", "be", "in", "on",
