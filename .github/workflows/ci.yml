@@ -35,7 +35,7 @@ on:
         default: ""
 
 env:
-  CLINK_VERSION: ${{ inputs.clink_version || 'v0.16.1' }}
+  CLINK_VERSION: ${{ inputs.clink_version || 'v0.16.2' }}
   # No object-store Arrow (nothing here uses s3://): lets the pinned toolchain
   # build on a bare runner (source-build fallback) without the aws-sdk.
   CLINK_ARROW_OBJECT_STORES: "OFF"
